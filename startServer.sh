@@ -1,11 +1,10 @@
 #!/bin/bash
 
-if [ $# -ne 2 ]; then
-    echo "Usage: $0 <hostname> <port>"
+if [ $# -ne 1 ]; then
+    echo "Usage: $0 <port>"
     exit 1
 fi
 
-hostname=$1
-port=$2
+port=$1
 
-python client.py "$hostname" "$port"
+python server.py "$port"
