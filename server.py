@@ -3,7 +3,11 @@ import sys
 
 
 async def load_messages(username):
-    print(f"Loading messages for user {username}")
+    """
+    Load messages for a user from a file.
+    :param username: The username of the user.
+    :return: A list of messages for the user.
+    """
     try:
         with open(f"{username}.txt", "r") as file:
             messages = file.readlines()
@@ -15,13 +19,87 @@ async def load_messages(username):
 
 
 async def save_message(recipient, sender, message):
-    print(f"Saving message from {sender} to {recipient}")
+    """
+    Save a message from a sender to a recipient.
+    :param recipient: The username of the recipient.
+    :param sender: The username of the sender.
+    :param message: The message to be saved.
+    """
     with open(f"{recipient}.txt", "a") as file:
         file.write(f"{sender}|{message}\n")
-    print(f"Message saved for {recipient}")
+    print(f"Message saved from {sender} to {recipient}")
+
+
+async def send_response(writer, response):
+    """
+    Send a response to the client.
+    :param writer: The writer object for the client connection.
+    :param response: The response to be sent.
+    """
+    writer.write(response.encode())
+    await writer.drain()
+
+
+async def handle_login(writer, username):
+    """
+    Handle the LOGIN command.
+    :param writer: The writer object for the client connection.
+    :param username: The username provided by the client.
+    :return: The username if valid, None otherwise.
+    """
+    if ' ' in username:
+        print(f"Invalid username: {username}")
+        await send_response(writer, "Invalid username\n")
+        return None
+    messages = await load_messages(username)
+    await send_response(writer, f"{len(messages)}\n")
+    print(f"User {username} logged in")
+    return username
+
+
+async def handle_compose(writer, username, recipient, message):
+    """
+    Handle the COMPOSE command.
+    :param writer: The writer object for the client connection.
+    :param username: The username of the sender.
+    :param recipient: The username of the recipient.
+    :param message: The message to be sent.
+    """
+    await save_message(recipient, username, message)
+    await send_response(writer, "MESSAGE SENT\n")
+    print(f"User {username} left a message to {recipient}")
+
+
+async def handle_read(writer, username):
+    """
+    Handle the READ command.
+    :param writer: The writer object for the client connection.
+    :param username: The username of the user reading messages.
+    """
+    messages = await load_messages(username)
+    if not messages:
+        print(f"No messages found for user {username}")
+        await send_response(writer, "READ ERROR\n")
+    else:
+        sender, message = messages[0].split("|", 1)
+        print(f"User {username} is reading a message from {sender}: {message}")
+        await send_response(writer, f"{sender}\n")
+        await send_response(writer, f"{message}\n")
+        print(f"Message sent to user {username}")
+        messages = messages[1:]
+        print(f"Removed message, {len(messages)} messages left for user {username}")
+        with open(f"{username}.txt", "w") as file:
+            file.write("\n".join(messages))
+            if messages:
+                file.write("\n")
 
 
 async def handle_client(reader, writer):
+    """
+    Handle communication with a client.
+    :param reader: The reader object for the client connection.
+    :param writer: The writer object for the client connection.
+    """
     addr = writer.get_extra_info('peername')
     print(f"New client connected: {addr}")
     username = None
@@ -38,72 +116,41 @@ async def handle_client(reader, writer):
         if command == "LOGIN":
             if username is not None:
                 print(f"User {username} attempted to login again")
-                writer.write("Already logged in\n".encode())
-                await writer.drain()
+                await send_response(writer, "Already logged in\n")
                 continue
-            username = data.split()[1]
-            if ' ' in username:
-                print(f"Invalid username: {username}")
-                writer.write("Invalid username\n".encode())
-                await writer.drain()
-                continue
-            messages = await load_messages(username)
-            writer.write(f"{len(messages)}\n".encode())
-            await writer.drain()
-            print(f"User {username} logged in")
+            username = await handle_login(writer, data.split()[1])
         elif command == "COMPOSE":
             if username is None:
                 print(f"Unauthenticated user attempted to compose a message")
-                writer.write("Not logged in\n".encode())
-                await writer.drain()
+                await send_response(writer, "Not logged in\n")
                 continue
             recipient = data.split()[1]
             message = await reader.readline()
             message = message.decode().strip()
-            await save_message(recipient, username, message)
-            writer.write("MESSAGE SENT\n".encode())
-            await writer.drain()
-            print(f"User {username} sent a message to {recipient}")
+            await handle_compose(writer, username, recipient, message)
         elif command == "READ":
             if username is None:
                 print(f"Unauthenticated user attempted to read messages")
-                writer.write("Not logged in\n".encode())
-                await writer.drain()
+                await send_response(writer, "Not logged in\n")
                 continue
-            messages = await load_messages(username)
-            if not messages:
-                print(f"No messages found for user {username}")
-                writer.write("READ ERROR\n".encode())
-                await writer.drain()
-            else:
-                sender, message = messages[0].split("|", 1)
-                print(f"User {username} is reading a message from {sender}: {message}")
-                writer.write(f"{sender}\n".encode())
-                await writer.drain()
-                writer.write(f"{message}\n".encode())
-                await writer.drain()
-                print(f"Message sent to user {username}")
-                messages = messages[1:]
-                print(f"Removed message, {len(messages)} messages left for user {username}")
-                with open(f"{username}.txt", "w") as file:
-                    file.write("\n".join(messages))
-                    if messages:
-                        file.write("\n")
+            await handle_read(writer, username)
         elif command == "EXIT":
-            writer.write("Goodbye\n".encode())
-            await writer.drain()
+            await send_response(writer, "Goodbye\n")
             writer.close()
             await writer.wait_closed()
             print(f"User {username} exited")
             break
         else:
             print(f"Invalid command received from {addr}: {command}")
-            writer.write("Invalid command\n".encode())
-            await writer.drain()
+            await send_response(writer, "Invalid command\n")
             writer.close()
             await writer.wait_closed()
 
+
 async def main():
+    """
+    Main function to start the server.
+    """
     if len(sys.argv) != 2:
         print("Usage: python server.py <port>")
         sys.exit(1)
@@ -116,6 +163,7 @@ async def main():
     
     async with server:
         await server.serve_forever()
+
 
 if __name__ == '__main__':
     asyncio.run(main())
