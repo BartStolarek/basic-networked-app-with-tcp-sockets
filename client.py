@@ -1,4 +1,3 @@
-# client.py
 import asyncio
 import sys
 import re
@@ -94,7 +93,7 @@ async def handle_login(reader, writer, username, password):
     :param username: The username entered by the user.
     :return: True if login is successful, False otherwise.
     """
-    await send_message(writer, f"LOGIN {username} <{password}>")
+    await send_message(writer, f"LOGIN {username} {password}")
     response = await receive_message(reader)
     if response == 'Invalid response' or invalid_response(response):
         return False
@@ -104,7 +103,7 @@ async def handle_login(reader, writer, username, password):
     
 
 async def handle_register(reader, writer, username, password):
-    await send_message(writer, f"REGISTER {username} <{password}>")
+    await send_message(writer, f"REGISTER {username} {password}")
     response = await receive_message(reader)
     if response == 'Invalid response' or invalid_response(response):
         return False
@@ -124,7 +123,10 @@ async def handle_compose(reader, writer):
     await send_message(writer, f"COMPOSE {recipient}")
     await send_message(writer, message)
     response = await receive_message(reader)
-    print(f"Server: {response}")
+    if response == "MESSAGE SENT":
+        print("Your message was sent successfully.")
+    else:
+        print(f"Server: {response}")
 
 
 async def handle_read(reader, writer):
@@ -233,7 +235,6 @@ async def main():
     while not logged_in:
         username, password = obtain_credentials()
         logged_in = await handle_login(reader, writer, username, password)
-        
         
     while True:
         command = input("Enter a command (COMPOSE, READ, or EXIT): ")

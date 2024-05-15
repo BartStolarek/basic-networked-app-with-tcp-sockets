@@ -1,4 +1,3 @@
-# server.py
 import asyncio
 import sys
 import hashlib
@@ -6,12 +5,49 @@ import os
 from cryptography.fernet import Fernet  # type: ignore
 from cryptography.fernet import InvalidToken  # type: ignore
 import hmac
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 # Use a predefined key (must be a URL-safe base64-encoded 32-byte key)
 predefined_key = b'MY9Kx7thDF9T4qCj6kP6bZjNa9yL8h9DUCqkUG4NcYQ='
 cipher_suite = Fernet(predefined_key)
 
 hmac_key = b'your_secret_hmac_key'
+
+# Generate RSA key pair for digital signatures
+private_key = rsa.generate_private_key(
+    public_exponent=65537,
+    key_size=2048
+)
+public_key = private_key.public_key()
+
+
+def sign_message(message):
+    signature = private_key.sign(
+        message,
+        padding.PSS(
+            mgf=padding.MGF1(hashes.SHA256()),
+            salt_length=padding.PSS.MAX_LENGTH
+        ),
+        hashes.SHA256()
+    )
+    return signature
+
+
+def verify_signature(message, signature):
+    try:
+        public_key.verify(
+            signature,
+            message,
+            padding.PSS(
+                mgf=padding.MGF1(hashes.SHA256()),
+                salt_length=padding.PSS.MAX_LENGTH
+            ),
+            hashes.SHA256()
+        )
+        return True
+    except Exception:
+        return False
 
 
 async def load_messages(username):
@@ -82,9 +118,7 @@ async def handle_login(writer, username, password):
                     user_found = True
                     salt_hex = line.split()[1]
                     password_hash = line.split()[2]
-                    file.close()
                     break
-        file.close()
     except FileNotFoundError:
         print("User file not found - no registered users")
         await send_response(writer, "Invalid username\n")
@@ -128,7 +162,6 @@ async def handle_register(writer, username, password):
                     print(f"Username {username.capitalize()} already exists")
                     await send_response(writer, "Username already exists\n")
                     return
-        file.close()
     except FileNotFoundError:
         pass
     
@@ -143,27 +176,18 @@ async def handle_register(writer, username, password):
 def hash_password(password):
     salt = os.urandom(32)
     hashed_password = hashlib.sha256(salt + password.encode()).hexdigest()
-    
     return salt.hex(), hashed_password
 
 
 def verify_password(stored_salt, stored_hashed_password, provided_password):
     salt = bytes.fromhex(stored_salt)
-    
     hashed_password = hashlib.sha256(salt + provided_password.encode()).hexdigest()
-    
     return hashed_password == stored_hashed_password
 
 
 async def handle_compose(writer, username, recipient, message):
-    """
-    Handle the COMPOSE command.
-    :param writer: The writer object for the client connection.
-    :param username: The username of the sender.
-    :param recipient: The username of the recipient.
-    :param message: The message to be sent.
-    """
-    await save_message(recipient.lower(), username.lower(), message)
+    signature = sign_message(message.encode())
+    await save_message(recipient.lower(), username.lower(), f"{message}|{signature.hex()}")
     await send_response(writer, "MESSAGE SENT\n")
     print(f"User {username.capitalize()} left a message to {recipient.capitalize()}")
 
@@ -179,21 +203,25 @@ async def handle_read(writer, username):
         print(f"No messages found for user {username.capitalize()}")
         await send_response(writer, "READ ERROR\n")
     else:
-        sender, message = messages[0].split("|", 1)
-        print(f"User {username.capitalize()} is reading a message from {sender.capitalize()}: {message}")
-        await send_response(writer, f"{sender.capitalize()}\n")
-        await send_response(writer, f"{message}\n")
-        print(f"Message sent to user {username.capitalize()}")
-        print(f"{len(messages-1)} messages left for user {username.capitalize()}")
-        if len(messages) > 1:
-            messages = messages[1:]
-            with open(f"{username.lower()}.txt", "w") as file:
-                file.write("\n".join(messages))
-                file.write("\n")
+        sender, message, signature = messages[0].split("|", 2)
+        if verify_signature(message.encode(), bytes.fromhex(signature)):
+            print(f"User {username.capitalize()} is reading a message from {sender.capitalize()}: {message}")
+            await send_response(writer, f"{sender.capitalize()}\n")
+            await send_response(writer, f"{message}\n")
+            print(f"Message sent to user {username.capitalize()}")
+            print(f"{len(messages)-1} messages left for user {username.capitalize()}")
+            if len(messages) > 1:
+                messages = messages[1:]
+                with open(f"{username.lower()}.txt", "w") as file:
+                    file.write("\n".join(messages))
+                    file.write("\n")
+            else:
+                # Clear the file
+                with open(f"{username.lower()}.txt", "w") as file:
+                    file.write("\n")
         else:
-            # Clear the file
-            with open(f"{username.lower()}.txt", "w") as file:
-                file.write("\n")
+            print(f"Invalid signature for message from {sender.capitalize()}")
+            await send_response(writer, "Invalid message signature\n")
 
 
 async def handle_client(reader, writer):
@@ -283,7 +311,6 @@ async def main():
     
     async with server:
         await server.serve_forever()
-
 
 if __name__ == '__main__':
     asyncio.run(main())
