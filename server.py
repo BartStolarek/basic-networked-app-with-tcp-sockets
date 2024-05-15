@@ -3,12 +3,15 @@ import asyncio
 import sys
 import hashlib
 import os
-from cryptography.fernet import Fernet
-from cryptography.fernet import InvalidToken
+from cryptography.fernet import Fernet  # type: ignore
+from cryptography.fernet import InvalidToken  # type: ignore
+import hmac
 
 # Use a predefined key (must be a URL-safe base64-encoded 32-byte key)
 predefined_key = b'MY9Kx7thDF9T4qCj6kP6bZjNa9yL8h9DUCqkUG4NcYQ='
 cipher_suite = Fernet(predefined_key)
+
+hmac_key = b'your_secret_hmac_key'
 
 
 async def load_messages(username):
@@ -49,7 +52,8 @@ async def send_response(writer, response):
     :param response: The response to be sent.
     """
     encrypted_message = cipher_suite.encrypt((response + '\n').encode())
-    writer.write(encrypted_message)
+    hmac_signature = hmac.new(hmac_key, encrypted_message, hashlib.sha256).hexdigest()
+    writer.write(f"{encrypted_message.decode()}|{hmac_signature}\n".encode())
     await writer.drain()
 
 
@@ -82,7 +86,7 @@ async def handle_login(writer, username, password):
                     break
         file.close()
     except FileNotFoundError:
-        print(f"User file not found - no registered users")
+        print("User file not found - no registered users")
         await send_response(writer, "Invalid username\n")
         return None
             
@@ -181,7 +185,7 @@ async def handle_read(writer, username):
         await send_response(writer, f"{message}\n")
         print(f"Message sent to user {username.capitalize()}")
         print(f"{len(messages-1)} messages left for user {username.capitalize()}")
-        if len(messages) > 1:    
+        if len(messages) > 1:
             messages = messages[1:]
             with open(f"{username.lower()}.txt", "w") as file:
                 file.write("\n".join(messages))
@@ -202,16 +206,24 @@ async def handle_client(reader, writer):
     username = None
     while True:
         try:
-            encrypted_data = await reader.read(1024)
-            if not encrypted_data:
-                print(f"Client {addr} disconnected")
-                break
-            print(f"Received encrypted data from {addr}: {encrypted_data}")
-            data = cipher_suite.decrypt(encrypted_data).decode().strip()
+            data = await reader.readline()
+            encrypted_data, received_hmac = data.decode().strip().split('|')
+            encrypted_data_bytes = encrypted_data.encode()
+            calculated_hmac = hmac.new(hmac_key, encrypted_data_bytes, hashlib.sha256).hexdigest()
+            
+            if calculated_hmac != received_hmac:
+                print(f"Message integrity check failed for client {addr}. Message may have been tampered with.")
+                await send_response(writer, "Invalid HMAC signature\n")
+                continue
+            
+            data = cipher_suite.decrypt(encrypted_data_bytes).decode().strip()
             print(f"Decrypted data from {addr}: {data}")
         except InvalidToken:
             print(f"Invalid token received from {addr}")
             await send_response(writer, "Invalid token\n")
+        except ValueError:
+            print("Invalid HMAC Signature")
+            await send_response(writer, "Invalid HMAC signature\n")
             
         command = data.split()[0]
         if command == "LOGIN":

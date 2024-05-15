@@ -2,13 +2,17 @@
 import asyncio
 import sys
 import re
-from cryptography.fernet import Fernet
-from cryptography.fernet import InvalidToken
+from cryptography.fernet import Fernet  # type: ignore
+from cryptography.fernet import InvalidToken  # type: ignore
+import hmac
+import hashlib
 
 
 # Use a predefined key (must be a URL-safe base64-encoded 32-byte key)
 predefined_key = b'MY9Kx7thDF9T4qCj6kP6bZjNa9yL8h9DUCqkUG4NcYQ='
 cipher_suite = Fernet(predefined_key)
+
+hmac_key = b'your_secret_hmac_key'
 
 
 async def send_message(writer, message):
@@ -18,7 +22,8 @@ async def send_message(writer, message):
     :param message: The message to be sent.
     """
     encrypted_message = cipher_suite.encrypt((message + '\n').encode())
-    writer.write(encrypted_message)
+    hmac_signature = hmac.new(hmac_key, encrypted_message, hashlib.sha256).hexdigest()
+    writer.write(f"{encrypted_message.decode()}|{hmac_signature}\n".encode())
     await writer.drain()
 
 
@@ -37,6 +42,9 @@ def invalid_response(response):
         return True
     elif response.startswith("Invalid token"):
         print("Invalid token provided to server. Please try again.")
+        return True
+    elif response.startswith("Invalid HMAC signature"):
+        print("Invalid HMAC signature provided to server. Please try again.")
         return True
     elif response.startswith("Username already exists"):
         print("Username already exists. Please try again.")
@@ -59,14 +67,22 @@ async def receive_message(reader):
     :return: The received message.
     """
     try:
-        encrypted_response = await reader.read(1024)
-        response = cipher_suite.decrypt(encrypted_response).decode().strip()
+        data = await reader.readline()
+        encrypted_response, received_hmac = data.decode().strip().split('|')
+        encrypted_response_bytes = encrypted_response.encode()
+        calculated_hmac = hmac.new(hmac_key, encrypted_response_bytes, hashlib.sha256).hexdigest()
+        
+        if calculated_hmac != received_hmac:
+            print("Message integrity check failed. Message may have been tampered with.")
+            return "Invalid response"
+        
+        response = cipher_suite.decrypt(encrypted_response_bytes).decode().strip()
         if invalid_response(response):
             return "Invalid response"
         else:
             return response
-    except InvalidToken:
-        print("Invalid token provided by server. Please try again")
+    except (InvalidToken, ValueError):
+        print("Invalid token or HMAC signature provided by server. Please try again.")
         return "Invalid response"
 
 
