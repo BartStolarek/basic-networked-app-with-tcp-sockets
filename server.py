@@ -9,7 +9,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 # Use a predefined key (must be a URL-safe base64-encoded 32-byte key)
-predefined_key = b'MY9Kx7thDF9T4qCj6kP6bZjNa9yL8h9DUCqkUG4NcYQ='
+predefined_key = b'MY9Kx7thDF9T4qCj6kP6bZjNa9yL8h9DUCqkUG4NcYQ='  
 cipher_suite = Fernet(predefined_key)
 
 hmac_key = b'your_secret_hmac_key'
@@ -20,6 +20,12 @@ private_key = rsa.generate_private_key(
     key_size=2048
 )
 public_key = private_key.public_key()
+
+##########################################################################################
+#
+# IMPORTANT: Use environments and config.env to store keys instead of hardcoding them.
+#
+###########################################################################################
 
 
 def sign_message(message):

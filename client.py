@@ -13,6 +13,11 @@ cipher_suite = Fernet(predefined_key)
 
 hmac_key = b'your_secret_hmac_key'
 
+##########################################################################################
+#
+# IMPORTANT: Use environments and config.env to store keys instead of hardcoding them.
+#
+###########################################################################################
 
 async def send_message(writer, message):
     """
