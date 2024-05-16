@@ -19,6 +19,7 @@ hmac_key = b'your_secret_hmac_key'
 #
 ###########################################################################################
 
+
 async def send_message(writer, message):
     """
     Send a message to the server.
