@@ -23,6 +23,11 @@ public_key = private_key.public_key()
 
 
 def sign_message(message):
+    """
+    Sign a message using the private key.
+    :param message: The message to be signed.
+    :return: The signature of the message.
+    """
     signature = private_key.sign(
         message,
         padding.PSS(
@@ -35,6 +40,12 @@ def sign_message(message):
 
 
 def verify_signature(message, signature):
+    """
+    Verify the signature of a message using the public key.
+    :param message: The message to be verified.
+    :param signature: The signature to be verified.
+    :return: True if the signature is valid, False otherwise.
+    """
     try:
         public_key.verify(
             signature,
@@ -59,13 +70,12 @@ async def load_messages(username):
     try:
         with open(f"{username.lower()}.txt", "r") as file:
             messages = file.readlines()
-        messages = [msg.strip() for msg in messages]
+        messages = [msg.strip() for msg in messages if msg.strip() != ""]
         if len(messages) == 1 and (messages[0] == "\n" or messages[0] == ""):
             messages = []
         print(f"Loaded {len(messages)} messages for user {username.capitalize()}")
         return messages
     except FileNotFoundError:
-        print(f"No messages found for user {username.capitalize()}")
         return []
 
 
@@ -95,10 +105,12 @@ async def send_response(writer, response):
 
 async def handle_login(writer, username, password):
     """
-    Handle the LOGIN command.
+    Handle the LOGIN command.    
     :param writer: The writer object for the client connection.
     :param username: The username provided by the client.
-    :return: The username if valid, None otherwise.
+    :param password: The password provided by the client.
+    :return: The username of the user if login is successful, None otherwise.
+    
     """
     
     if ' ' in username:
@@ -158,7 +170,8 @@ async def handle_register(writer, username, password):
     try:
         with open("users.txt", "r") as file:
             for line in file:
-                if line.lower() == username.lower():
+                stored_username = line.split()[0]
+                if stored_username.lower() == username.lower():
                     print(f"Username {username.capitalize()} already exists")
                     await send_response(writer, "Username already exists\n")
                     return
@@ -174,18 +187,37 @@ async def handle_register(writer, username, password):
 
 
 def hash_password(password):
+    """
+    Hash a password using a random salt.
+    :param password: The password to be hashed.
+    :return: The salt and hashed password.
+    """
     salt = os.urandom(32)
     hashed_password = hashlib.sha256(salt + password.encode()).hexdigest()
     return salt.hex(), hashed_password
 
 
 def verify_password(stored_salt, stored_hashed_password, provided_password):
+    """
+    Verify a password against a stored salt and hashed password.
+    :param stored_salt: The stored salt.
+    :param stored_hashed_password: The stored hashed password.
+    :param provided_password: The password to be verified.
+    :return: True if the password is valid, False otherwise.
+    """
     salt = bytes.fromhex(stored_salt)
     hashed_password = hashlib.sha256(salt + provided_password.encode()).hexdigest()
     return hashed_password == stored_hashed_password
 
 
 async def handle_compose(writer, username, recipient, message):
+    """
+    Handle the COMPOSE command.
+    :param writer: The writer object for the client connection.
+    :param username: The username of the user composing the message.
+    :param recipient: The username of the recipient of the message.
+    :param message: The message to be sent.
+    """
     signature = sign_message(message.encode())
     await save_message(recipient.lower(), username.lower(), f"{message}|{signature.hex()}")
     await send_response(writer, "MESSAGE SENT\n")

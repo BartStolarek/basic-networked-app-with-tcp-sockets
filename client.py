@@ -27,6 +27,11 @@ async def send_message(writer, message):
 
 
 def invalid_response(response):
+    """
+    Check if the response is invalid.
+    :param response: The response from the server.
+    :return: True if the response is invalid, False otherwise.
+    """
     if response.startswith("Invalid username"):
         print("Invalid username. Please try again.")
         return True
@@ -91,6 +96,7 @@ async def handle_login(reader, writer, username, password):
     :param reader: The reader object for the server connection.
     :param writer: The writer object for the server connection.
     :param username: The username entered by the user.
+    :param password: The password entered by the user.
     :return: True if login is successful, False otherwise.
     """
     await send_message(writer, f"LOGIN {username} {password}")
@@ -103,6 +109,14 @@ async def handle_login(reader, writer, username, password):
     
 
 async def handle_register(reader, writer, username, password):
+    """
+    Handle the register process.
+    :param reader: The reader object for the server connection.
+    :param writer: The writer object for the server connection.
+    :param username: The username entered by the user.
+    :param password: The password entered by the user.
+    :return: True if registration is successful, False otherwise.
+    """
     await send_message(writer, f"REGISTER {username} {password}")
     response = await receive_message(reader)
     if response == 'Invalid response' or invalid_response(response):
@@ -124,7 +138,7 @@ async def handle_compose(reader, writer):
     await send_message(writer, message)
     response = await receive_message(reader)
     if response == "MESSAGE SENT":
-        print("Your message was sent successfully.")
+        print(f"Your message was sent successfully to {recipient}.")
     else:
         print(f"Server: {response}")
 
@@ -137,11 +151,13 @@ async def handle_read(reader, writer):
     """
     await send_message(writer, "READ")
     sender = await receive_message(reader)
-    message = await receive_message(reader)
+    
     if sender == 'READ ERROR':
         print('No messages to read.')
         return
-    elif sender == 'Invalid response' or message == 'Invalid response':
+    message = await receive_message(reader)
+    
+    if sender == 'Invalid response' or message == 'Invalid response':
         return
     print(f"From: {sender}")
     print(f"Message: {message}")
